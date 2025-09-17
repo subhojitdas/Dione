@@ -1,0 +1,7 @@
+build/
+*.o
+*.a
+*.so
+*.dSYM/
+.DS_Store
+.idea/*
