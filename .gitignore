@@ -5,3 +5,4 @@ build/
 *.dSYM/
 .DS_Store
 .idea/*
+.vscode/
