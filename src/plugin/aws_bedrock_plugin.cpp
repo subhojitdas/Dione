@@ -5,20 +5,43 @@
 
 // Check if the AWS SDK is available
 #if __has_include(<aws/core/Aws.h>) && \
-    __has_include(<aws/core/client/ClientConfiguration.h>) && \
-    __has_include(<aws/bedrock-runtime/BedrockRuntimeClient.h>)
+    __has_include(<aws/core/client/ClientConfiguration.h>)
 
-// AWS SDK includes
+// AWS SDK includes - only include what we need
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
 
-// Try different possible include paths for Bedrock
+// Forward declare types we need
+namespace Aws {
+namespace BedrockRuntime {
+class BedrockRuntimeClient;
+namespace Model {
+class InvokeModelRequest;
+class InvokeModelResult;
+}
+}
+namespace Bedrock {
+class BedrockClient;
+namespace Model {
+class InvokeModelRequest;
+class InvokeModelResult;
+}
+}
+}
+
+// Define BEDROCK_RUNTIME_CLIENT_TYPE macro to help us choose which client to use at compile time
 #if __has_include(<aws/bedrock-runtime/BedrockRuntimeClient.h>)
+  #define BEDROCK_RUNTIME_CLIENT_TYPE Aws::BedrockRuntime::BedrockRuntimeClient
+  #define BEDROCK_REQUEST_TYPE Aws::BedrockRuntime::Model::InvokeModelRequest
+  #define BEDROCK_RESULT_TYPE Aws::BedrockRuntime::Model::InvokeModelResult
   #include <aws/bedrock-runtime/BedrockRuntimeClient.h>
   #include <aws/bedrock-runtime/model/InvokeModelRequest.h>
   #include <aws/bedrock-runtime/model/InvokeModelResult.h>
   #define AWS_BEDROCK_AVAILABLE 1
 #elif __has_include(<aws/bedrock/BedrockClient.h>)
+  #define BEDROCK_RUNTIME_CLIENT_TYPE Aws::Bedrock::BedrockClient
+  #define BEDROCK_REQUEST_TYPE Aws::Bedrock::Model::InvokeModelRequest
+  #define BEDROCK_RESULT_TYPE Aws::Bedrock::Model::InvokeModelResult
   #include <aws/bedrock/BedrockClient.h>
   #include <aws/bedrock/model/InvokeModelRequest.h>
   #include <aws/bedrock/model/InvokeModelResult.h>
@@ -46,11 +69,9 @@
   // This is needed to handle our static deleter function properly
   struct BedrockClientDeleter {
     static void DestroyClient(void* ptr) {
-        #if __has_include(<aws/bedrock-runtime/BedrockRuntimeClient.h>)
-            delete static_cast<Aws::BedrockRuntime::BedrockRuntimeClient*>(ptr);
-        #elif __has_include(<aws/bedrock/BedrockClient.h>)
-            delete static_cast<Aws::Bedrock::BedrockClient*>(ptr);
-        #endif
+      #if defined(BEDROCK_RUNTIME_CLIENT_TYPE)
+        delete static_cast<BEDROCK_RUNTIME_CLIENT_TYPE*>(ptr);
+      #endif
     }
   };
 #endif
@@ -74,12 +95,12 @@ BedrockPlugin::BedrockPlugin(const std::string& region, const std::string& model
     // Use our static deleter function for the client
     auto clientDeleter = &BedrockClientDeleter::DestroyClient;
     
-    // Create Bedrock Runtime client
+    // Create Bedrock Runtime client using our type macro
     void* rawClient = nullptr;
-    #if __has_include(<aws/bedrock-runtime/BedrockRuntimeClient.h>)
-        rawClient = new Aws::BedrockRuntime::BedrockRuntimeClient(*clientConfig);
-    #elif __has_include(<aws/bedrock/BedrockClient.h>)
-        rawClient = new Aws::Bedrock::BedrockClient(*clientConfig);
+    #if defined(BEDROCK_RUNTIME_CLIENT_TYPE)
+        Aws::Client::ClientConfiguration config;
+        config.region = region;
+        rawClient = new BEDROCK_RUNTIME_CLIENT_TYPE(config);
     #endif
     
     // Assign the client to our unique_ptr with custom deleter
@@ -129,10 +150,8 @@ std::string BedrockPlugin::converse(const std::string& prompt) {
 #if AWS_BEDROCK_AVAILABLE
     try {
         // Create the InvokeModel request - using Anthropic's Claude model
-        #if __has_include(<aws/bedrock-runtime/model/InvokeModelRequest.h>)
-          Aws::BedrockRuntime::Model::InvokeModelRequest request;
-        #elif __has_include(<aws/bedrock/model/InvokeModelRequest.h>)
-          Aws::Bedrock::Model::InvokeModelRequest request;
+        #if defined(BEDROCK_REQUEST_TYPE)
+          BEDROCK_REQUEST_TYPE request;
         #endif
 
         // Set the model ID
@@ -164,13 +183,10 @@ std::string BedrockPlugin::converse(const std::string& prompt) {
         request.SetBody(payloadStream);
         request.SetContentType("application/json");
 
-        // Send the request to Bedrock (using appropriate client type)
-        #if __has_include(<aws/bedrock-runtime/model/InvokeModelRequest.h>)
-            auto runtimeClient = static_cast<Aws::BedrockRuntime::BedrockRuntimeClient*>(bedrockClient.get());
+        // Send the request to Bedrock using our type macro
+        #if defined(BEDROCK_RUNTIME_CLIENT_TYPE)
+            auto runtimeClient = static_cast<BEDROCK_RUNTIME_CLIENT_TYPE*>(bedrockClient.get());
             auto outcome = runtimeClient->InvokeModel(request);
-        #elif __has_include(<aws/bedrock/model/InvokeModelRequest.h>)
-            auto bedrock_client = static_cast<Aws::Bedrock::BedrockClient*>(bedrockClient.get());
-            auto outcome = bedrock_client->InvokeModel(request);
         #endif
 
         if (outcome.IsSuccess()) {
