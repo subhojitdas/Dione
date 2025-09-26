@@ -8,3 +8,4 @@ build/
 .vscode/
 aws-sdk-cpp/
 build_matrix/
+build_neural/
